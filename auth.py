@@ -1,8 +1,8 @@
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -14,11 +14,23 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
 # --------- Password hashing ---------
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def hash_password(password: str) -> str:
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    try:
+        password_bytes = password.encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 # --------- User operations ---------
 def register_user(db: Session, username: str, password: str, email: Optional[str] = None, gender: Optional[str] = None) -> User:
-    hashed_password = pwd_context.hash(password)
+    hashed_password = hash_password(password)
     user = User(username=username, email=email, gender=gender, hashed_password=hashed_password)
     db.add(user)
     db.commit()
@@ -29,10 +41,7 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
     user = db.query(User).filter(User.username == username).first()
     if not user:
         return None
-    try:
-        if not pwd_context.verify(password, user.hashed_password):
-            return None
-    except Exception:
+    if not verify_password(password, user.hashed_password):
         if password != user.hashed_password:
             return None
     return user
