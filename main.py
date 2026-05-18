@@ -100,11 +100,11 @@ templates.env.globals["now"] = datetime.utcnow
 def home(request: Request):
     if "token" in request.session:
         return RedirectResponse("/chat", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 @app.post("/login")
 async def login(request: Request):
@@ -116,13 +116,13 @@ async def login(request: Request):
             token = create_access_token({"sub": user.username, "id": user.id})
             request.session["token"] = token
             return RedirectResponse("/chat", status_code=303)
-        return templates.TemplateResponse("login.html", {"request": request, "error": "❌ Giriş başarısız"})
+        return templates.TemplateResponse(request, "login.html", {"error": "❌ Giriş başarısız"})
     finally:
         db.close()
 
 @app.get("/register", response_class=HTMLResponse)
 def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+    return templates.TemplateResponse(request, "register.html")
 
 @app.post("/register")
 async def register(request: Request):
@@ -134,7 +134,7 @@ async def register(request: Request):
         request.session["token"] = token
         return RedirectResponse("/chat", status_code=303)
     except Exception:
-        return templates.TemplateResponse("register.html", {"request": request, "error": "❌ Kayıt başarısız"})
+        return templates.TemplateResponse(request, "register.html", {"error": "❌ Kayıt başarısız"})
     finally:
         db.close()
 
@@ -156,8 +156,7 @@ def chat_page(request: Request):
     if not token or not decode_token(token):
         return RedirectResponse("/login", status_code=303)
     history = get_chat_history(decode_token(token)["sub"])
-    return templates.TemplateResponse("chat.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "chat.html", {
         "history": history,
         "initialTopics": [],
         "initialQuestions": []
@@ -238,8 +237,7 @@ def profile_page(request: Request):
     db.close()
     puanlar = [evaluate_prompt(c.message)[0] for c in chats if c.response and c.response.strip()]
     ortalama = round(sum(puanlar)/len(puanlar), 2) if puanlar else 0
-    return templates.TemplateResponse("profile.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "profile.html", {
         "user": user,
         "average_score": ortalama,
         "history": chats
