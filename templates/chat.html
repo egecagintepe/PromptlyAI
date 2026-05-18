@@ -1,0 +1,252 @@
+{# templates/chat.html #}
+{% extends "base.html" %}
+{% block title %}Sohbet | PromptlyAI{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex flex-col bg-gray-50">
+
+  <!-- Başlık -->
+  <header class="bg-white shadow py-6">
+    <h2 class="text-3xl font-extrabold text-center">Sohbet</h2>
+  </header>
+
+  <!-- Sektör & Örnek / Konu Başlıkları -->
+  <section class="bg-white border-b px-6 py-8 max-w-5xl mx-auto w-full">
+    <form id="sektor-form" class="flex flex-col sm:flex-row gap-4 mb-6">
+      <input
+        id="sektor-input"
+        type="text"
+        placeholder="Sektör (örn: yazılımcı)"
+        class="flex-1 border border-gray-300 px-4 py-2 rounded-lg focus:ring-purple-500 focus:border-purple-500"
+      />
+      <button type="submit" class="btn-primary">Örnekleri Getir</button>
+    </form>
+
+    <!-- Örnek / Yeni Öneri Kartları -->
+    <div id="soru-butons" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6"></div>
+
+    <!-- Sık Sorulanlar -->
+    <p class="text-lg font-semibold mb-4">Sık Sorulanlar</p>
+    <div id="konu-listesi" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+      {% if initialTopics %}
+        {% for kt in initialTopics %}
+          <button
+            type="button"
+            onclick='loadTopic("{{ kt }}", {{ loop.index0 }})'
+            class="w-full px-4 py-3 rounded-lg text-left font-bold transition topic-btn-{{ loop.index0 + 1 }}"
+          >
+            {{ kt }}
+          </button>
+        {% endfor %}
+      {% else %}
+        <p class="col-span-full text-gray-500 italic">Lütfen önce bir sektör giriniz.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- Sohbet Geçmişi -->
+  <section
+    id="chat-box"
+    class="flex-1 overflow-y-auto bg-gray-100 px-6 py-8 space-y-4 max-w-5xl mx-auto w-full"
+    style="max-height: 60vh;"
+  >
+    {% if history %}
+      {% for msg, res in history %}
+        <!-- Kullanıcı mesajı -->
+        <div class="chat-message message-user">
+          <div class="bubble">{{ msg }}</div>
+        </div>
+        <!-- Bot mesajı -->
+        <div class="chat-message message-bot">
+          <div class="bubble">
+            <div class="bot-title"><span class="emoji">🤖</span> Yanıt</div>
+            <div class="bot-body">{{ res }}</div>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="text-center text-gray-500 italic">Henüz sohbet geçmişiniz yok.</p>
+    {% endif %}
+  </section>
+
+  <!-- Yeni Mesaj & Prompt İyileştir -->
+  <section class="bg-white border-t px-6 py-6 max-w-5xl mx-auto w-full space-y-4">
+    <form id="chat-form" class="flex flex-col sm:flex-row gap-4">
+      <input
+        id="message-input"
+        name="message"
+        type="text"
+        placeholder="Mesajınızı yazın..."
+        class="flex-1 border border-gray-300 px-4 py-2 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+      />
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
+        Gönder
+      </button>
+    </form>
+
+    <div id="chat-error" class="mt-2"></div>
+
+    <button
+      id="btn-improve"
+      type="button"
+      class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg"
+    >
+      ⚡ Promptu İyileştir
+    </button>
+
+    <!-- PUAN ve ÖNERİ burada gösterilecek -->
+    <div id="puanlama-sonucu" class="mt-2"></div>
+
+    <div class="text-right">
+      <form method="post" action="/delete-all-chats">
+        <button type="submit" class="text-sm text-red-600 hover:underline">
+          Tüm Mesajları Sil
+        </button>
+      </form>
+    </div>
+  </section>
+</div>
+
+
+
+<script>
+  const sektorInput = document.getElementById('sektor-input');
+  const msgInput    = document.getElementById('message-input');
+  const chatBox     = document.getElementById('chat-box');
+  const soruButons  = document.getElementById('soru-butons');
+  const btnImprove  = document.getElementById('btn-improve');
+
+  function scrollBottom() {
+    chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
+  }
+  function clearErrors() {
+    document.getElementById('chat-error').innerHTML = '';
+    document.getElementById('puanlama-sonucu').innerHTML = '';
+  }
+
+  function updateSuggestionCards(suggestions) {
+    soruButons.innerHTML = '';
+    suggestions.slice(0,6).forEach(text => {
+      const btn = document.createElement('button');
+      btn.className = 'w-full px-4 py-3 rounded-lg font-bold bg-gray-200 hover:bg-gray-300 text-black';
+      btn.textContent = text;
+      btn.onclick = () => { msgInput.value = text; msgInput.focus(); };
+      soruButons.appendChild(btn);
+    });
+  }
+
+  document.getElementById('sektor-form').addEventListener('submit', async e => {
+    e.preventDefault(); clearErrors();
+    const sec = sektorInput.value.trim(); if (!sec) return;
+    const { sorular, konular } = await fetch(`/sektor-ornekleri?sektor=${encodeURIComponent(sec)}`).then(r=>r.json());
+    updateSuggestionCards(sorular);
+    const kdiv = document.getElementById('konu-listesi');
+    kdiv.innerHTML = '';
+    konular.forEach((kt,i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `w-full px-4 py-3 rounded-lg font-bold text-white transition bg-[var(--topic-color-${i+1})] hover:bg-[var(--topic-hover-${i+1})]`;
+      btn.textContent = kt;
+      btn.onclick = () => loadTopic(kt,i);
+      kdiv.appendChild(btn);
+    });
+  });
+
+  document.getElementById('chat-form').addEventListener('submit', async e => {
+    e.preventDefault(); clearErrors();
+    const msg = msgInput.value.trim(); if (!msg) return;
+
+    const data = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg })
+    }).then(r => r.json());
+
+    if (data.response.startsWith('[HATA]')) {
+      document.getElementById('chat-error').innerHTML =
+        `<div class="bg-red-100 border border-red-300 p-3 rounded-lg text-red-800 whitespace-pre-line">${data.response}</div>`;
+      return;
+    }
+
+    // Mesaj balonları
+    chatBox.insertAdjacentHTML('beforeend', `
+      <div class="chat-message message-user">
+        <div class="bubble">${data.message}</div>
+      </div>`);
+    chatBox.insertAdjacentHTML('beforeend', `
+      <div class="chat-message message-bot">
+        <div class="bubble">
+          <div class="bot-title"><span class="emoji">🤖</span> Yanıt</div>
+          <div class="bot-body">${data.response}</div>
+        </div>
+      </div>`);
+
+    // Yeni öneriler
+    if (Array.isArray(data.yeni_oneriler)) {
+      updateSuggestionCards(data.yeni_oneriler);
+    }
+
+    // PUAN ve ÖNERi göster
+    document.getElementById('puanlama-sonucu').innerHTML = `
+      <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg text-sm text-blue-900">
+        <strong>📊 Puan:</strong> ${data.score}/100<br/>
+        <strong>💡 Öneri:</strong> ${data.suggestion || '—'}
+      </div>`;
+
+    msgInput.value = '';
+    msgInput.focus();
+    scrollBottom();
+  });
+
+  btnImprove.addEventListener('click', async () => {
+    clearErrors();
+    const t = msgInput.value.trim(); if (!t) return;
+    const res = await fetch('/prompt-iyilestir', {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({ mesaj: t })
+    }).then(r=>r.json());
+
+    if (res.yeni.startsWith('[HATA]')) {
+      document.getElementById('puanlama-sonucu').innerHTML =
+        `<div class="bg-red-100 border border-red-300 p-3 rounded-lg text-red-800 whitespace-pre-line">${res.yeni}</div>`;
+      return;
+    }
+    msgInput.value = res.yeni;
+    msgInput.focus();
+  });
+
+  const topicColors = [
+  ['bg-[var(--topic-color-1)]','hover:bg-[var(--topic-hover-1)]'],
+  ['bg-[var(--topic-color-2)]','hover:bg-[var(--topic-hover-2)]'],
+  ['bg-[var(--topic-color-3)]','hover:bg-[var(--topic-hover-3)]'],
+  ['bg-[var(--topic-color-4)]','hover:bg-[var(--topic-hover-4)]']
+];
+
+function updateSuggestionCards(list, colorIdx = null) {
+  const cont = document.getElementById('soru-butons');
+  cont.innerHTML = '';
+  list.slice(0,6).forEach(text => {
+    let cls = 'w-full px-4 py-3 rounded-lg font-bold transition ';
+    if (colorIdx !== null) {
+      cls += topicColors[colorIdx].join(' ') + ' text-white';
+    } else {
+      cls += 'bg-gray-200 hover:bg-gray-300 text-black';
+    }
+    const btn = document.createElement('button');
+    btn.className   = cls;
+    btn.textContent = text;
+    btn.onclick     = () => { msgInput.value = text; msgInput.focus(); };
+    cont.appendChild(btn);
+  });
+}
+
+async function loadTopic(topic, idx) {
+  const { sorular } = await fetch(`/topic-ornekleri?topic=${encodeURIComponent(topic)}`)
+                            .then(r => r.json());
+  updateSuggestionCards(sorular, idx);
+}
+
+  window.addEventListener('load', scrollBottom);
+</script>
+{% endblock %}
